@@ -16,10 +16,16 @@ raw_text <-
   as_tibble()
 
 # Deal with separating line ----
-sep_line <-
-  raw_text %>% 
-  pull(value) %>% 
-  grep(pattern = "--.+")
+findSeparatingLine <- function(text) {
+  colname <- colnames(text)
+  
+  text %>% 
+    pull(colname) %>% 
+    grep(pattern = "--.+")
+}
+
+
+sep_line <- findSeparatingLine(raw_text)
 
 raw_text <-
   raw_text %>% 
@@ -45,27 +51,38 @@ raw_text <-
 # Separate the columns of the table ----
 
 # Get column names
-column_names <-
+getColumnNames <- function(text) {
+  text %>% 
+    slice(1) %>% # 1st row is the names
+    unlist(use.names = FALSE) %>% 
+    str_split_1(pattern = "\\|") %>% # Get single names
+    str_trim()
+}
+
+column_names <- 
   raw_text %>% 
-  slice(1) %>% # 1st row is the names
-  unlist(use.names = FALSE) %>% 
-  str_split_1(pattern = "\\|") %>% # Get single names
-  str_trim()
+  getColumnNames()
 
 # Separate into columns
-galaxy_table <-
+separateColumns <- function(text, column_names) {
+  text %>% 
+    separate_wider_delim(
+      cols = value, 
+      delim = "|", 
+      names = column_names
+    ) %>% # Split single columns at the delimiter
+    slice(-1) %>% 
+    mutate(
+      across(
+        .fns = ~. %>% str_trim() %>% na_if("")
+      ) # First remove whitespaces, then fill empty elements with NAs
+    ) 
+}
+
+galaxy_table <- 
   raw_text %>% 
-  separate_wider_delim(
-    cols = value, 
-    delim = "|", 
-    names = column_names
-  ) %>% # Split single columns at the delimiter
-  slice(-1) %>% 
-  mutate(
-    across(
-      .fns = ~. %>% str_trim() %>% na_if("")
-    ) # First remove whitespaces, then fill empty elements with NAs
-  ) 
+  separateColumns(column_names)
+
 
 # Convert columns that contain numbers into numeric columns
 galaxy_table <-
@@ -77,3 +94,64 @@ galaxy_table <-
 galaxy_table %>% 
   ggplot(aes(x = log_lk)) +
   geom_histogram()
+
+
+###### TASK 4 ######
+
+# Load data ----
+galaxy_speeds <-
+  readLines("https://www.sao.ru/lv/lvgdb/article/UCNG_Table4.txt") %>% 
+  as_tibble()
+
+# Deal with separating line ----
+sep_line_speeds <- galaxy_speeds %>% 
+  findSeparatingLine()
+
+galaxy_speeds <-
+  galaxy_speeds %>% 
+  slice(-sep_line_speeds)
+
+# Separate the columns of the table ----
+
+# Get column names
+column_names_speeds <-
+  galaxy_speeds %>% 
+  getColumnNames()
+
+# Separate into columns
+galaxy_speeds_table <- 
+  galaxy_speeds %>% 
+  separateColumns(column_names_speeds)
+
+# Convert columns containing numbers into numeric
+galaxy_speeds_table <-
+  galaxy_speeds_table %>% 
+  mutate(across(c(cz, error), as.numeric))
+
+# Join velocity to galaxy_table ----
+
+# Extract name and cz column
+velocity_table <-
+  galaxy_speeds_table %>% 
+  select(name, cz)
+
+# Join
+galaxy_table <-
+  galaxy_table %>% 
+  left_join(velocity_table, by = join_by(name == name)) %>% 
+  relocate(cz, .after = D)
+
+# Plot velocity against distance ----
+galaxy_table %>% 
+  ggplot(aes(x = D, y = cz)) +
+  geom_point() +
+  geom_smooth(method = lm)
+
+# Yes, there seems to be a roughly proportional relationship.
+
+# Estimate Hubble's constant as H = v/D ----
+hubble_constant <-
+  mean(galaxy_table$cz, na.rm = T)/mean(galaxy_table$D, na.rm = T)
+
+# Wikipedia lists the constant as being in between 68 and 74 
+# (km/s)/Mpc; our result is fairly close to the upper estimation limit
