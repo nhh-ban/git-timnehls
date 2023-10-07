@@ -6,7 +6,8 @@
 
 # Load packages ----
 library(tidyverse)
-library(here)
+library(magrittr) # Needed for %$%
+library(reshape2)
 
 ###### TASK 2 ######
 
@@ -89,11 +90,72 @@ galaxy_table <-
   galaxy_table %>%
   mutate(across(-c(name, md), as.numeric))
 
+# If we want a tidy tibble, we need to remove md column,
+# as it would turn the value column into a character column.
+# We can store this information in another variable.
+galaxy_table %>% 
+  select(name, md) -> disturber_info
+
+galaxy_table %>% 
+  select(-md) %>%
+  melt(id.vars = "name") %>% 
+  as_tibble() %>%
+  filter(!(variable == "m_b" & is.na(value))) -> tidy_galaxies
+
 
 ###### TASK 3 ######
-galaxy_table %>% 
-  ggplot(aes(x = log_lk)) +
-  geom_histogram()
+
+# The size of the galaxies is reflected in m_b
+# Idea: Plot a normal bell curve with mu = mean(m_b), sigma = sd(m_b)
+
+tidy_galaxies %>% 
+  filter(variable == "m_b") %>%
+  summarise(mean = mean(value, na.rm = T),
+            sd = sd(value, na.rm = T)) -> stats_magnitudes
+
+# Create plot
+# As you can see, the plot is skewed to the right.
+tidy_galaxies %>%
+  filter(variable == "m_b") %>% 
+  ggplot(aes(x = value)) + 
+  geom_histogram(
+    aes(y = ..density..),
+    colour = "#e9ecef",
+    alpha = 0.6,
+    binwidth = 1,
+    na.rm = TRUE) +
+  stat_function(fun = dnorm,
+                args = list(
+                  mean = stats_magnitudes$mean, 
+                  sd = stats_magnitudes$sd
+                ),
+                colour = "red",
+                geom = "point"
+  ) +
+  ylab("Relative frequency") +
+  xlab("Absolute magnitude of the galaxy") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  theme_minimal() +
+  ggtitle("Relative frequencies of galaxy magnitudes", 
+          "Data taken from 'UPDATED NEARBY GALAXY CATALOG', 
+          The Astronomical Journal, 145:101 (22pp), 2013 April")
+
+
+# We can also calculate skewness and kurtosis.
+# The distribution of magnitudes is skewed to the
+# right and has fatter tails.
+tidy_galaxies %>% 
+  filter(variable == "m_b") %$% 
+  c(
+    skewness = moments::skewness(value),
+    kurtosis = moments::kurtosis(value)
+  )
+
+# An explanation for this could be that galaxies with bigger
+# magnitudes (the light emitted by the galaxy) are easier to
+# observe, as the telescopes might not be sensitive enough
+# for galaxies with little light emission.
+
 
 
 ###### TASK 4 ######
@@ -128,22 +190,35 @@ galaxy_speeds_table <-
   galaxy_speeds_table %>% 
   mutate(across(c(cz, error), as.numeric))
 
+# Again, we want to save the character columns into a
+# separate tibble, as tidying the table would
+# result in a character value column
+
+galaxy_speeds_table %>% 
+  select(name, bibcode, refs) -> speed_references
+
+tidy_speeds <- galaxy_speeds_table %>% 
+  select(name, cz, error) %>% 
+  melt(id.vars = "name") %>% 
+  as_tibble()
+
 # Join velocity to galaxy_table ----
 
 # Extract name and cz column
 velocity_table <-
-  galaxy_speeds_table %>% 
-  select(name, cz)
+  tidy_speeds %>% 
+  filter(variable == "cz")
 
 # Join
-galaxy_table <-
-  galaxy_table %>% 
-  left_join(velocity_table, by = join_by(name == name)) %>% 
-  relocate(cz, .after = D)
+tidy_galaxies <- 
+  tidy_galaxies %>% 
+  left_join(velocity_table, by = join_by(name == name))
+
 
 # Plot velocity against distance ----
-galaxy_table %>% 
-  ggplot(aes(x = D, y = cz)) +
+tidy_galaxies %>% 
+  filter(variable.x == "D") %>% 
+  ggplot(aes(x = value.x, y = value.y)) +
   geom_point() +
   geom_smooth(method = lm)
 
@@ -152,6 +227,12 @@ galaxy_table %>%
 # Estimate Hubble's constant as H = v/D ----
 hubble_constant <-
   mean(galaxy_table$cz, na.rm = T)/mean(galaxy_table$D, na.rm = T)
+
+tidy_galaxies %>% 
+  filter(variable.x == "D") %$% 
+  c(mean(value.x, na.rm = T), # Mean of distances
+    mean(value.y, na.rm = T)) %>% # Mean of speeds
+  { .[2]/ .[1] } # Divide speeds by distances
 
 # Wikipedia lists the constant as being in between 68 and 74 
 # (km/s)/Mpc; our result is fairly close to the upper estimation limit
