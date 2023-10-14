@@ -1,11 +1,16 @@
+################
+# Git assignment
+# Tim Nehls
+# 30.9.2023
+################
 
-# Skeleton file 1 for Assignment 1 in BAN400. 
-# -------------------------------------------
+# Load packages ----
+library(tidyverse)
 
-# Comments below describes briefly a set of steps that solves Problem 1.
 
 # Read the entire data file into memory using the readLines()-function. Use the
 # URL direcly or read the data from the local file that is in the repository.
+readLines()
 
 # Identify the line number L of the separator line between the column names and
 # the rest of the data table.
